@@ -3,6 +3,8 @@ pipeline {
 
     environment {
         DOCKERHUB = credentials('dockerhub-creds')
+        IMAGE_NAME = 'todo-cli'           // change name if you want
+        CONTAINER_NAME = 'todo-cli-app'   // container name on your machine
     }
 
     stages {
@@ -29,23 +31,24 @@ pipeline {
             }
         }
 
+        stage('Install Dependencies') {
+            steps {
+                // Use venv's python/pip explicitly (Windows paths)
+                bat '.\\venv\\Scripts\\python.exe -m pip install --upgrade pip'
+                bat '.\\venv\\Scripts\\pip.exe install -r requirements.txt'
+            }
+        }
+
         stage('Run Tests') {
             steps {
                 bat ".\\venv\\Scripts\\pytest.exe"
             }
         }
 
-        stage('Install dependencies') {
+        stage('Run Tests') {
             steps {
-                // Everything is in ci-cd root: requirements.txt next to app.py
-                bat 'pip install -r requirements.txt'
-            }
-        }
-
-        stage('Run tests') {
-            steps {
-                // test_app.py is in the same folder as app.py
-                bat 'pytest test_app.py'
+                // Run tests with pytest from the virtualenv
+                bat '.\\venv\\Scripts\\pytest.exe'
             }
         }
 
@@ -56,19 +59,37 @@ pipeline {
             }
             steps {
                 // Build image from current folder (ci-cd root = Docker build context)
-                bat "docker build -t parthsk/ci-cd-todo:latest ."
+                bat "docker build -t %DOCKERHUB_USR%/ci-cd-todo:latest ."
+            }
+        }
+        stage('Push Docker Image') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                // Login and push to Docker Hub
+                bat "docker login -u %DOCKERHUB_USR% -p %DOCKERHUB_PSW%"
+                bat "docker push %DOCKERHUB_USR%/%IMAGE_NAME%:latest"
+            }
+        }
+
+        stage('Deploy Container') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                // Stop & remove any existing container with same name (ignore errors)
+                bat "docker stop %CONTAINER_NAME% || echo No existing container to stop"
+                bat "docker rm %CONTAINER_NAME% || echo No existing container to remove"
+
+                // Run new container from pushed image
+                bat "docker run -d --name %CONTAINER_NAME% %DOCKERHUB_USR%/%IMAGE_NAME%:latest"
             }
         }
 
         stage('Docker login') {
             steps {
-                bat "docker login -u parthsk -p %DOCKERHUB_PSW%"
-            }
-        }
-
-        stage('Push Docker image') {
-            steps {
-                bat "docker push parthsk/ci-cd-todo:latest"
+                bat "docker login -u %DOCKERHUB_USR% -p %DOCKERHUB_PSW%"
             }
         }
     }
