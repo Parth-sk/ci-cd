@@ -31,26 +31,12 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
-            steps {
-                // Use venv's python/pip explicitly (Windows paths)
-                bat '.\\venv\\Scripts\\python.exe -m pip install --upgrade pip'
-                bat '.\\venv\\Scripts\\pip.exe install -r requirements.txt'
-            }
-        }
-
         stage('Run Tests') {
             steps {
                 bat ".\\venv\\Scripts\\pytest.exe"
             }
         }
 
-        stage('Run Tests') {
-            steps {
-                // Run tests with pytest from the virtualenv
-                bat '.\\venv\\Scripts\\pytest.exe'
-            }
-        }
 
         stage('Build Docker image') {
             when {
