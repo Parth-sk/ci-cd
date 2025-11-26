@@ -2,84 +2,94 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB = credentials('dockerhub-creds')
-        IMAGE_NAME = 'todo-cli'           // change name if you want
-        CONTAINER_NAME = 'todo-cli-app'   // container name on your machine
+        IMAGE = "parthsk/cicd-project-pipeline:jenkins"
+        VENV = ".venv"
+        // On Windows, we usually just call 'python' if it is added to the PATH
+        PYTHON = "C:\\Users\\parth\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                // If job is configured as "Pipeline script from SCM", you can even delete this stage.
-                git branch: 'main',
-                    credentialsId: 'cicd-id',
-                    url: 'https://github.com/Parth-sk/ci-cd.git'
+                checkout([$class: 'GitSCM',
+                  branches: [[name: '*/main']],
+                  userRemoteConfigs: [[
+                    url: 'https://https://github.com/Parth-sk/ci-cd.git',
+                    credentialsId: 'cicd-id'
+                  ]]
+                ])
             }
         }
 
         stage('Create Virtual Environment') {
             steps {
-                bat '"C:\\Users\\parth\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" -m venv venv'
+                // 1. Create venv
+                // 2. Upgrade pip using the executable inside Scripts
+                bat '''
+                    %PYTHON% -m venv %VENV%
+                    %VENV%\\Scripts\\python.exe -m pip install --upgrade pip
+                '''
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                bat ".\\venv\\Scripts\\python.exe -m pip install --upgrade pip"
-                bat ".\\venv\\Scripts\\pip.exe install -r requirements.txt"
+                // Use pip inside the virtual environment
+                bat '%VENV%\\Scripts\\pip.exe install -r requirements.txt'
             }
         }
 
         stage('Run Tests') {
             steps {
-                bat ".\\venv\\Scripts\\pytest.exe"
+                // Use pytest inside the virtual environment
+                bat '%VENV%\\Scripts\\pytest.exe -v'
             }
         }
 
-
-        stage('Build Docker image') {
-            when {
-                // Only if tests didn't fail
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
+        stage('Login to Docker Hub') {
             steps {
-                // Build image from current folder (ci-cd root = Docker build context)
-                bat "docker build -t %DOCKERHUB_USR%/%IMAGE_NAME%:latest ."
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                                  usernameVariable: 'USER', 
+                                                  passwordVariable: 'PASS')]) {
+                    // Log in immediately so subsequent steps are authenticated
+                    bat '@echo %PASS% | docker login -u %USER% --password-stdin'
+                }
             }
         }
+
+        stage('Build Docker Image') {
+            steps {
+                bat 'docker build -t %IMAGE% .'
+            }
+        }
+
         stage('Push Docker Image') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
-                // Login
-                bat "docker login -u %DOCKERHUB_USR% -p %DOCKERHUB_PSW%"
-
-                // Push image; if Docker complains about platform and returns non-zero,
-                // don't fail the pipeline as long as layers were pushed.
-                bat "docker push %DOCKERHUB_USR%/%IMAGE_NAME%:latest || exit /b 0"
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                                  usernameVariable: 'USER', 
+                                                  passwordVariable: 'PASS')]) {
+                    // @echo prevents the password from showing in logs
+                    // %VAR% is used for batch variables
+                    bat '''
+                      docker logout
+                      @echo %PASS% | docker login -u %USER% --password-stdin
+                      docker push %IMAGE%
+                    '''
+                }
             }
         }
-
 
         stage('Deploy Container') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
-                // Stop & remove any existing container with same name (ignore errors)
-                bat "docker stop %CONTAINER_NAME% || echo No existing container to stop"
-                bat "docker rm %CONTAINER_NAME% || echo No existing container to remove"
-
-                // Run new container from pushed image
-                bat "docker run -d --name %CONTAINER_NAME% %DOCKERHUB_USR%/%IMAGE_NAME%:latest"
-            }
-        }
-
-        stage('Docker login') {
-            steps {
-                bat "docker login -u %DOCKERHUB_USR% -p %DOCKERHUB_PSW%"
+                // The "|| echo..." pattern mimics "|| true" in Linux. 
+                // It ensures the build doesn't fail if the container doesn't exist yet.
+                bat '''
+                  docker pull %IMAGE%
+                  docker stop ci-cd-demo || echo "Container not running, skipping stop"
+                  docker rm ci-cd-demo || echo "Container not found, skipping remove"
+                  docker run -d -p 5000:5000 --name ci-cd-demo %IMAGE%
+                '''
             }
         }
     }
