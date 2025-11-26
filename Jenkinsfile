@@ -2,71 +2,53 @@ pipeline {
     agent any
 
     environment {
-        IMAGE = "prathamchawdhry/ci-cd-demo2:jenkins"
-        VENV = ".venv"
-        PYTHON = "/usr/bin/python3" 
+        DOCKERHUB = credentials('dockerhub-creds')
     }
 
     stages {
-
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM',
-                  branches: [[name: '*/main']],
-                  userRemoteConfigs: [[
-                    url: 'https://github.com/Parth-sk/ci-cd.git',
-                    credentialsId: 'cicd-id'
-                  ]]
-                ])
+                // If job is configured as "Pipeline script from SCM", you can even delete this stage.
+                git branch: 'main',
+                    credentialsId: 'cicd-id',
+                    url: 'https://github.com/Parth-sk/ci-cd.git'
             }
         }
 
-        stage('Create Virtual Environment') {
+        stage('Install dependencies') {
             steps {
-                sh '$PYTHON -m venv $VENV'
-                sh '$VENV/bin/pip install --upgrade pip'
+                // Everything is in ci-cd root: requirements.txt next to app.py
+                bat 'pip install -r requirements.txt'
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Run tests') {
             steps {
-                sh '$VENV/bin/pip install -r requirements.txt'
+                // test_app.py is in the same folder as app.py
+                bat 'pytest test_app.py'
             }
         }
 
-        stage('Run Tests') {
+        stage('Build Docker image') {
+            when {
+                // Only if tests didn't fail
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
             steps {
-                sh '$VENV/bin/pytest -v'
+                // Build image from current folder (ci-cd root = Docker build context)
+                bat "docker build -t parthsk/ci-cd-todo:latest ."
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Docker login') {
             steps {
-                sh 'docker build -t $IMAGE .'
+                bat "docker login -u parthsk -p %DOCKERHUB_PSW%"
             }
         }
 
-        stage('Push Docker Image') {
+        stage('Push Docker image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
-                                                  usernameVariable: 'USER',
-                                                  passwordVariable: 'PASS')]) {
-                    sh '''
-                      echo $PASS | docker login -u $USER --password-stdin
-                      docker push $IMAGE
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy Container') {
-            steps {
-                sh '''
-                  docker pull $IMAGE
-                  docker stop ci-cd-demo || true
-                  docker rm ci-cd-demo || true
-                  docker run -d -p 5000:5000 --name ci-cd-demo $IMAGE
-                '''
+                bat "docker push parthsk/ci-cd-todo:latest"
             }
         }
     }
