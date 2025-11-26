@@ -20,7 +20,7 @@ pipeline {
 
         stage('Create Virtual Environment') {
             steps {
-                bat 'python -m venv venv'
+                bat '"C:\Users\parth\AppData\Local\Programs\Python\Python313\python.exe" -m venv venv'
             }
         }
 
@@ -59,7 +59,7 @@ pipeline {
             }
             steps {
                 // Build image from current folder (ci-cd root = Docker build context)
-                bat "docker build -t %DOCKERHUB_USR%/ci-cd-todo:latest ."
+                bat "docker build -t %DOCKERHUB_USR%/%IMAGE_NAME%:latest ."
             }
         }
         stage('Push Docker Image') {
