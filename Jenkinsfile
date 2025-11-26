@@ -6,12 +6,32 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 // If job is configured as "Pipeline script from SCM", you can even delete this stage.
                 git branch: 'main',
                     credentialsId: 'cicd-id',
                     url: 'https://github.com/Parth-sk/ci-cd.git'
+            }
+        }
+
+        stage('Create Virtual Environment') {
+            steps {
+                bat 'python -m venv venv'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                bat ".\\venv\\Scripts\\python.exe -m pip install --upgrade pip"
+                bat ".\\venv\\Scripts\\pip.exe install -r requirements.txt"
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                bat ".\\venv\\Scripts\\pytest.exe"
             }
         }
 
