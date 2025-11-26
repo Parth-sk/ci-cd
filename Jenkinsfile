@@ -20,7 +20,7 @@ pipeline {
 
         stage('Create Virtual Environment') {
             steps {
-                bat '"C:\Users\parth\AppData\Local\Programs\Python\Python313\python.exe" -m venv venv'
+                bat '"C:\\Users\\parth\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" -m venv venv'
             }
         }
 
